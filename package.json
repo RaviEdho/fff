@@ -1,5 +1,9 @@
 {
   "private": true,
+  "dependencies": {
+    "@ff-labs/fff-bun": "*",
+    "@ff-labs/fff-node": "*"
+  },
   "pi": {
     "extensions": ["./packages/pi-fff/src/index.ts"]
   }
