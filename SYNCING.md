@@ -40,3 +40,16 @@ git rev-list --count main..upstream/main   # commits behind (upstream)
 - When a custom commit lands upstream (via PR), drop it from this fork during the next rebase (`git rebase --drop` / skip) — divergence shrinks toward zero.
 - Prefer PR-ing fork changes upstream over carrying them forever on `main`; every commit carried here is a permanent conflict surface.
 - rerere is machine-local — the `.git/rr-cache` is never pushed. A fresh clone on another machine starts with an empty cache (re-enable the config there too).
+
+## Local development gotchas
+
+- **Never run `bun install` / `npm install` inside `packages/`.** Bun links the workspace
+  packages (`@ff-labs/fff-node`, `@ff-labs/fff-bun`) into `packages/pi-fff/node_modules`
+  as symlinks to the unbuilt source tree. Node resolution then finds those symlinks
+  before the root `node_modules` (where `pi install git:...` runs `npm install` and gets
+  the published, built packages) and the pi session fails with
+  `Cannot find module .../fff-node/dist/index.cjs`.
+- If it already happened, fix with: `rm -rf packages/pi-fff/node_modules/@ff-labs`
+  (the rest of that directory — `tsc`, `@types`, etc. — can stay).
+- The only supported dependency install for this repo is `npm install` at the repo root,
+  which pi also runs automatically when it installs or reconciles the package.
