@@ -47,6 +47,11 @@ const GREP_MAX_MATCHES_PER_FILE = 200;
 const GREP_CONTEXT_MAX = 20;
 const GREP_MAX_LINE_LENGTH = 500;
 const MENTION_MAX_RESULTS = 20;
+const PATH_DESCRIPTION =
+  "Full-path constraint: prefix, filename, or glob (`src/`, `main.rs`, `*.ts`). Absolute, `~`, or `../` paths use a separate index.";
+const EXCLUDE_DESCRIPTION =
+  "Exclude full-path prefixes/globs; comma/space string or array (`test/`, `*.min.js`). Leading `!` is optional.";
+const CURSOR_DESCRIPTION = "Cursor from a previous page.";
 
 // If we exceed 10 seconds for indexed grep - something is definitely off
 const GREP_TIME_BUDGET_MS = 10_000;
@@ -799,49 +804,42 @@ export default function fffExtension(pi: ExtensionAPI) {
 
   const grepSchema = Type.Object({
     pattern: Type.String({
-      description: "Search pattern (literal text or regex)",
+      description: "Text or regex; regex syntax is auto-detected.",
     }),
     path: Type.Optional(
       Type.String({
-        description:
-          "Path constraint. Directory prefix (src/ or src/foo/), bare filename with extension (main.rs), or glob (*.ts, src/**/*.cc, {src,lib}/**). Applied to the full repo-relative path. Absolute, ~/, and ../ paths outside the workspace are also supported and searched with a separate index.",
+        description: PATH_DESCRIPTION,
       }),
     ),
     exclude: Type.Optional(
       Type.Union([Type.String(), Type.Array(Type.String())], {
-        description:
-          "Exclude paths (comma/space-separated or array). Same syntax as path: directory prefix ('test/'), filename with extension ('config.json'), or glob ('*.min.js', '**/*.{rs,go}'). A leading '!' is optional and ignored — both 'test/' and '!test/' work. Example: 'test/,*.min.js,!vendor/'.",
+        description: EXCLUDE_DESCRIPTION,
       }),
     ),
     caseSensitive: Type.Optional(
       Type.Boolean({
-        description:
-          "Force case-sensitive matching. Default uses smart-case (case-insensitive when pattern is all lowercase).",
+        description: "Exact case; omitted uses smart case.",
       }),
     ),
     context: Type.Optional(
       Type.Number({
-        description: `Context lines before+after each match (0-${GREP_CONTEXT_MAX})`,
+        description: `Context lines before/after (0-${GREP_CONTEXT_MAX}).`,
       }),
     ),
     limit: Type.Optional(
       Type.Number({
-        description: `Max matches (default ${DEFAULT_GREP_LIMIT})`,
+        description: `Max matches (default ${DEFAULT_GREP_LIMIT}).`,
       }),
     ),
-    cursor: Type.Optional(
-      Type.String({ description: "Pagination cursor from previous result" }),
-    ),
+    cursor: Type.Optional(Type.String({ description: CURSOR_DESCRIPTION })),
   });
 
   queueTool(() => toolNames.grep, {
-    description: `Grep file contents. Smart-case, auto-detects regex vs literal, git-aware. Results are ranked by frecency (most-accessed files first); matches within a file stay in source order. Default limit ${DEFAULT_GREP_LIMIT}.`,
+    description: `Search file contents with smart case and automatic regex detection. Files are git/frecency-ranked; matches stay in source order. Default ${DEFAULT_GREP_LIMIT}.`,
     promptSnippet: "Grep contents",
     promptGuidelines: (names) => [
-      `${names.grep}: prefer bare identifiers as patterns. Literal queries are most efficient.`,
-      `${names.grep}: use path for include ('src/', '*.ts') and exclude for noise ('test/,*.min.js').`,
-      `${names.grep}: caseSensitive: true when you need exact case (smart-case otherwise).`,
-      `${names.grep}: after 1-2 greps, read the top match instead of more greps.`,
+      `${names.grep}: prefer identifiers or literal text; narrow with path/exclude.`,
+      `${names.grep}: after 1-2 searches, read a relevant file.`,
     ],
     parameters: grepSchema,
 
@@ -999,41 +997,32 @@ export default function fffExtension(pi: ExtensionAPI) {
 
   const findSchema = Type.Object({
     pattern: Type.String({
-      description:
-        "Fuzzy filename search and glob search. Frecency-ranked, git-aware. Multi-word = narrower (AND) not bound to order, use for multi word related concept search. Prefer this over ls/find/bash as the first exploration step whenever the user names a concept, feature, or symbol — it surfaces the relevant files in one call. Only use ls/read on a directory when you specifically need the alphabetical layout of an unknown repo, or when a concept search returned nothing.",
+      description: "Fuzzy path terms or glob; multiple terms match in any order.",
     }),
     path: Type.Optional(
       Type.String({
-        description:
-          "Path constraint. Directory prefix (src/ or src/foo/), bare filename with extension (main.rs), or glob (*.ts, src/**/*.cc, {src,lib}/**). Applied to the full repo-relative path. Absolute, ~/, and ../ paths outside the workspace are also supported and searched with a separate index.",
+        description: PATH_DESCRIPTION,
       }),
     ),
     exclude: Type.Optional(
       Type.Union([Type.String(), Type.Array(Type.String())], {
-        description:
-          "Exclude paths (comma/space-separated or array). Same syntax as path: directory prefix ('test/'), filename with extension ('config.json'), or glob ('*.min.js', '**/*.{rs,go}'). A leading '!' is optional and ignored — both 'test/' and '!test/' work. Example: 'test/,*.min.js,!vendor/'.",
+        description: EXCLUDE_DESCRIPTION,
       }),
     ),
     limit: Type.Optional(
       Type.Number({
-        description: `Max results per page (default ${DEFAULT_FIND_LIMIT})`,
+        description: `Max results (default ${DEFAULT_FIND_LIMIT}).`,
       }),
     ),
-    cursor: Type.Optional(
-      Type.String({ description: "Pagination cursor from previous result" }),
-    ),
+    cursor: Type.Optional(Type.String({ description: CURSOR_DESCRIPTION })),
   });
 
   queueTool(() => toolNames.find, {
-    description: `Fuzzy path search and glob search. Matches against the whole repo-relative path, not just the filename. Frecency-ranked, git-aware. Multi-word = narrower (AND). Default limit ${DEFAULT_FIND_LIMIT}.`,
+    description: `Fuzzy/glob search over full repo-relative paths. Files are git/frecency-ranked; multi-word queries use AND. Default ${DEFAULT_FIND_LIMIT}.`,
     promptSnippet: "Find files by path or glob",
     promptGuidelines: (names) => [
-      `${names.find}: matches the WHOLE path, not just the filename — \`profile\` hits \`chrome/browser/profiles/x.cc\` too.`,
-      `${names.find}: keep queries to 1-2 terms; extra words narrow.`,
-      `${names.find}: use for paths, not content. Use ${names.grep} for content.`,
-      `${names.find}: for exact path matches use a glob in \`path\` — e.g. path: '**/profile.h' for exact filename, or path: 'src/**/profile.h' scoped to a subtree. Bare patterns are fuzzy.`,
-      `${names.find}: to list everything inside a directory, pass path: 'dir/**' with an empty or wildcard pattern instead of using pattern alone.`,
-      `${names.find}: use exclude: 'test/,*.min.js' to cut noise in large repos.`,
+      `${names.find}: use first for path discovery; use ${names.grep} for contents. Keep queries to 1-2 terms.`,
+      `${names.find}: path='**/name.ext' finds an exact filename; path='dir/**' lists a directory.`,
     ],
     parameters: findSchema,
 
